@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.venv
+.ruff_cache
 
 # C extensions
 *.so
