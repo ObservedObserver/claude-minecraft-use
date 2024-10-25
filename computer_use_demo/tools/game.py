@@ -1,8 +1,7 @@
 import asyncio
 import base64
 import os
-import shlex
-import shutil
+import pyautogui
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -99,10 +98,6 @@ class GameTool(BaseAnthropicTool):
     * If you tried clicking on a program or link but it failed to load, even after waiting, try adjusting your cursor position so that the tip of the cursor visually falls on the element that you want to click.
     * Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.
     In Minecraft, the standard controls are:
-    hold_arrow_up: Move forward
-    hold_arrow_left: Move left
-    hold_arrow_down: Move backward
-    hold_arrow_right: Move right
     space: Jump
     mouse_move: Look around
     left_down: Break blocks/attack
@@ -124,17 +119,6 @@ class GameTool(BaseAnthropicTool):
                 * `middle_click`: Click the middle mouse button.
                 * `double_click`: Double-click the left mouse button.
                 * `screenshot`: Take a screenshot of the screen.
-                # minecraft
-                * `left_down`: Hold down the left mouse button. Used for destroying blocks in minecraft.
-                * `left_up`: Release the left mouse button.
-                * `hold_arrow_up`: Hold down the up arrow key. Used for moving forward in minecraft.
-                * `release_arrow_up`: Release the up arrow key.
-                * `hold_arrow_down`: Hold down the down arrow key. Used for moving backward in minecraft.
-                * `release_arrow_down`: Release the down arrow key.
-                * `hold_arrow_left`: Hold down the left arrow key. Used for moving left in minecraft.
-                * `release_arrow_left`: Release the left arrow key.
-                * `hold_arrow_right`: Hold down the right arrow key. Used for moving right in minecraft.
-                * `release_arrow_right`: Release the right arrow key.
             """,
             "enum": [
                 "key",
@@ -206,8 +190,6 @@ class GameTool(BaseAnthropicTool):
             self.display_num = None
             self._display_prefix = ""
 
-        self.xdotool = f"{self._display_prefix}cliclick"
-
     async def __call__(
         self,
         *,
@@ -231,9 +213,11 @@ class GameTool(BaseAnthropicTool):
             )
 
             if action == "mouse_move":
-                return await self.shell(f"{self.xdotool} m:{x},{y}")
+                pyautogui.moveTo(x, y)
+                return ToolResult(output=f"Moved mouse to {x},{y}")
             elif action == "left_click_drag":
-                return await self.shell(f"{self.xdotool} dd:. dm:{x},{y} du:{x},{y}")
+                pyautogui.dragTo(x, y)
+                return ToolResult(output=f"Dragged mouse to {x},{y}")
 
         if action in ("key", "type"):
             if text is None:
@@ -244,31 +228,27 @@ class GameTool(BaseAnthropicTool):
                 raise ToolError(output=f"{text} must be a string")
 
             if action == "key":
-                if text.lower() == "w":
-                    return await self.shell(f"{self.xdotool} kd:shift w:1000 ku:shift")
-                elif text.lower() == "a":
-                    return await self.shell(f"{self.xdotool} kd:ctrl w:1000 ku:ctrl")
-                elif text.lower() == "s":
-                    return await self.shell(f"{self.xdotool} kd:fn w:1000 ku:fn")
-                elif text.lower() == "d":
-                    return await self.shell(f"{self.xdotool} kd:cmd w:1000 ku:cmd")
+                if text.lower() in 'wasd':
+                    pyautogui.keyDown(text.lower())
+                    pyautogui.sleep(1)
+                    pyautogui.keyUp(text.lower())
                 elif text.lower() in 'abcdefghijklmnopqrstuvwxyz':
-                    return await self.shell(f"{self.xdotool} t:{text}")
+                    pyautogui.press(text.lower())
                 elif text in "1234567890":
-                    return await self.shell(f"{self.xdotool} kp:num-{text}")
+                    pyautogui.press(text)
                 elif text.lower() == "return":
-                    return await self.shell(f"{self.xdotool} kp:enter")
+                    pyautogui.press('enter')
+                elif text.lower() in ("right-arrow", "right", "left-arrow", "left", "up-arrow", "up", "down-arrow", "down"):
+                    pyautogui.press(text.split('-')[0].lower())
                 else:
-                    return await self.shell(f"{self.xdotool} kp:{text}")
+                    pyautogui.press(text.lower())
+                return ToolResult(output=f"Pressed key: {text}")
             elif action == "type":
-                results: list[ToolResult] = []
                 for chunk in chunks(text, TYPING_GROUP_SIZE):
-                    cmd = f"{self.xdotool} t:{shlex.quote(chunk)} -w {TYPING_DELAY_MS}"
-                    results.append(await self.shell(cmd, take_screenshot=False))
+                    pyautogui.write(chunk, interval=TYPING_DELAY_MS/1000)
                 screenshot_base64 = (await self.screenshot()).base64_image
                 return ToolResult(
-                    output="".join(result.output or "" for result in results),
-                    error="".join(result.error or "" for result in results),
+                    output=f"Typed: {text}",
                     base64_image=screenshot_base64,
                 )
 
@@ -288,49 +268,34 @@ class GameTool(BaseAnthropicTool):
             if action == "screenshot":
                 return await self.screenshot()
             elif action == "cursor_position":
-                result = await self.shell(
-                    f"{self.xdotool} p",
-                    take_screenshot=False,
-                )
-                output = result.output or ""
+                x, y = pyautogui.position()
                 x, y = self.scale_coordinates(
-                    ScalingSource.COMPUTER,
-                    int(output.split(",")[0]),
-                    int(output.split(",")[1]),
+                    ScalingSource.COMPUTER, x, y
                 )
-                return result.replace(output=f"X={x},Y={y}")
+                return ToolResult(output=f"X={x},Y={y}")
             else:
-                click_arg = {
-                    "left_click": "c:.",
-                    "right_click": "rc:.",
-                    "middle_click": "mc:.",
-                    "double_click": "dc:.",
-                }[action]
-                return await self.shell(f"{self.xdotool} {click_arg}")
+                click_map = {
+                    "left_click": pyautogui.click,
+                    "right_click": pyautogui.rightClick,
+                    "middle_click": pyautogui.middleClick,
+                    "double_click": pyautogui.doubleClick,
+                }
+                click_map[action]()
+                return ToolResult(output=f"Performed {action}")
 
         # minecraft
         if action == "left_down":
-            return await self.shell(f"{self.xdotool} m:d")
+            pyautogui.mouseDown()
         elif action == "left_up":
-            return await self.shell(f"{self.xdotool} m:u")
-        elif action == "hold_arrow_up":
-            return await self.shell(f"{self.xdotool} kp:up")
-        elif action == "release_arrow_up":
-            return await self.shell(f"{self.xdotool} ku:up")
-        elif action == "hold_arrow_down":
-            return await self.shell(f"{self.xdotool} kp:down")
-        elif action == "release_arrow_down":
-            return await self.shell(f"{self.xdotool} ku:down")
-        elif action == "hold_arrow_left":
-            return await self.shell(f"{self.xdotool} kp:left")
-        elif action == "release_arrow_left":
-            return await self.shell(f"{self.xdotool} ku:left")
-        elif action == "hold_arrow_right":
-            return await self.shell(f"{self.xdotool} kp:right")
-        elif action == "release_arrow_right":
-            return await self.shell(f"{self.xdotool} ku:right")
+            pyautogui.mouseUp()
+        elif action.startswith("hold_arrow_"):
+            pyautogui.keyDown(action.split('_')[-1])
+        elif action.startswith("release_arrow_"):
+            pyautogui.keyUp(action.split('_')[-1])
+        else:
+            raise ToolError(f"Invalid action: {action}")
 
-        raise ToolError(f"Invalid action: {action}")
+        return ToolResult(output=f"Performed {action}")
 
     async def screenshot(self):
         """Take a screenshot of the current screen and return the base64 encoded image."""

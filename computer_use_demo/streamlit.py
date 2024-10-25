@@ -100,6 +100,10 @@ async def main():
     st.markdown(STREAMLIT_STYLE, unsafe_allow_html=True)
 
     st.title("Claude Computer Use Minecraft")
+    st.markdown("""
+    This is a demo of using Claude to control a computer running Minecraft.
+    Github Repo: [github.com/ObservedObserver/claude-minecraft-use](https://github.com/ObservedObserver/claude-minecraft-use)
+    """)
 
     # if not os.getenv("HIDE_WARNING", False):
     #     st.warning(WARNING_TEXT)
